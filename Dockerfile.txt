@@ -8,10 +8,16 @@ RUN dnf install -y java-11-openjdk wget curl tar python3 python3-pip && \
 # Set environment variables
 ENV SPARK_VERSION=3.3.2
 ENV HADOOP_VERSION=3.3.4
+ENV AIRFLOW_VERSION=2.7.3
 ENV SPARK_HOME=/opt/spark
 ENV HADOOP_HOME=/opt/hadoop
+ENV AIRFLOW_HOME=/opt/airflow
 ENV PATH="$SPARK_HOME/bin:$HADOOP_HOME/bin:$PATH"
 ENV LD_LIBRARY_PATH=$HADOOP_HOME/lib/native:$LD_LIBRARY_PATH
+
+# Install Apache Airflow
+RUN pip3 install --upgrade pip && \
+    pip3 install apache-airflow==$AIRFLOW_VERSION apache-airflow-providers-apache-spark pyspark pandas
 
 # Download and install Apache Spark
 RUN curl -L --retry 5 --retry-delay 10 -o /tmp/spark.tgz \
@@ -19,6 +25,9 @@ RUN curl -L --retry 5 --retry-delay 10 -o /tmp/spark.tgz \
     tar -xvzf /tmp/spark.tgz -C /opt/ && \
     mv /opt/spark-$SPARK_VERSION-bin-hadoop3 $SPARK_HOME && \
     rm /tmp/spark.tgz
+
+# Create Airflow directories
+RUN mkdir -p $AIRFLOW_HOME/dags $AIRFLOW_HOME/logs $AIRFLOW_HOME/config
 
 # Set working directory
 WORKDIR /app
@@ -29,8 +38,11 @@ COPY refactored.py /app/refactored.py
 # Ensure correct file format
 RUN dos2unix /app/refactored.py || true  # Ignore errors if dos2unix is missing
 
-# Install Python dependencies
-RUN pip3 install pyspark pandas
+# Initialize Airflow database
+RUN airflow db init
 
-# Run the script
-CMD ["python3", "/app/refactored.py"]
+# Expose Airflow webserver port
+EXPOSE 8080
+
+# Run both Airflow and Spark when the container starts
+CMD airflow webserver --port 8080 & airflow scheduler & python3 /app/refactored.py && tail -f /dev/null
